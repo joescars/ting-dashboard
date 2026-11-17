@@ -1,7 +1,10 @@
 services:
   ting:
-    build: .
-    image: ting-dashboard:latest
+    image: ${TING_IMAGE:-ting-dashboard:latest}
+    build:
+      context: .
+      args:
+        TING_VERSION: ${TING_VERSION:-dev}
     container_name: ting-dashboard
     restart: unless-stopped
     user: "${TING_UID:-1000}:${TING_GID:-1000}"
@@ -18,6 +21,17 @@ services:
     read_only: true
     tmpfs:
       - /tmp
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8097/healthz', timeout=4)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     security_opt:
       - no-new-privileges:true
     cap_drop:

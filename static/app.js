@@ -504,9 +504,82 @@
     });
   }
 
+  // ---------------------------------------------------------------- menu
+  const sess = { password_required: false, setup_available: false, version: null };
+  const menu = $("menu"), menuBtn = $("menu-btn");
+  const closeMenu = () => { menu.hidden = true; menuBtn.setAttribute("aria-expanded", "false"); };
+  menuBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const open = menu.hidden;
+    menu.hidden = !open;
+    menuBtn.setAttribute("aria-expanded", String(open));
+  });
+  document.addEventListener("click", (e) => { if (!menu.contains(e.target)) closeMenu(); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeMenu(); });
+
+  async function loadSession() {
+    try {
+      const s = await getJSON("/api/session");
+      Object.assign(sess, s);
+    } catch { /* offline */ }
+    $("menu-logout").hidden = !sess.password_required;
+    $("menu-setup").hidden = !sess.setup_available;
+    $("menu-unlink").hidden = !!sess.demo;
+    $("menu-meta").textContent = sess.demo
+      ? "Demo mode — no Ting account linked."
+      : sess.password_required
+        ? "Dashboard password is set."
+        : "Open access: anyone who can reach this port can view this dashboard. Set DASHBOARD_PASSWORD to require a sign-in.";
+  }
+
+  $("menu-logout").addEventListener("click", async () => {
+    await fetch("/api/logout", { method: "POST" }).catch(() => {});
+    location.href = "/login";
+  });
+
+  $("menu-unlink").addEventListener("click", async () => {
+    closeMenu();
+    if (!confirm("Unlink the Ting account? Live data stops until you link an account again.")) return;
+    const r = await fetch("/api/unlink", { method: "POST" });
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({}));
+      alert(d.error || "Could not unlink");
+      return;
+    }
+    location.href = "/setup";
+  });
+
+  // PWA install (Chromium only; iOS uses Share → Add to Home Screen)
+  let installEvent = null;
+  addEventListener("beforeinstallprompt", (e) => {
+    e.preventDefault();
+    installEvent = e;
+    $("menu-install").hidden = false;
+  });
+  $("menu-install").addEventListener("click", async (e) => {
+    e.preventDefault();
+    closeMenu();
+    if (!installEvent) return;
+    installEvent.prompt();
+    await installEvent.userChoice;
+    installEvent = null;
+    $("menu-install").hidden = true;
+  });
+  addEventListener("appinstalled", () => { $("menu-install").hidden = true; });
+
+  async function loadMeta() {
+    try {
+      const v = await getJSON("/api/version");
+      sess.version = v.version;
+      $("version").textContent = `v${v.version}`;
+    } catch { /* offline */ }
+  }
+
   // ---------------------------------------------------------------- boot
   applyTheme(theme);
   setRange(st.range);
+  loadSession();
+  loadMeta();
   connect();
   setInterval(loadHistory, 60000);
   setInterval(loadEvents, 60000);
