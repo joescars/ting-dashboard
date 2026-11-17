@@ -43,14 +43,25 @@ _PRIVATE_NETS = [
 
 
 def private_request(request: web.Request) -> bool:
-    """True for loopback/RFC1918/ULA peers, honouring one proxy hop."""
-    peer = request.remote or ""
-    forwarded = request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
-    candidate = (request.headers.get("X-Real-IP") or forwarded or peer).strip()
+    """True for loopback/RFC1918/ULA peers, honouring one proxy hop.
+
+    Forwarded headers are only believed when the immediate peer is loopback —
+    the documented reverse-proxy layout puts the proxy on 127.0.0.1, so this
+    keeps that working while stopping a remote client from claiming
+    127.0.0.1 in X-Forwarded-For to reach /setup.
+    """
+    peer = (request.remote or "").strip()
     try:
-        ip = ipaddress.ip_address(candidate)
+        ip = ipaddress.ip_address(peer)
     except ValueError:
         return False
+    if ip.is_loopback:
+        forwarded = request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
+        candidate = (request.headers.get("X-Real-IP") or forwarded or peer).strip()
+        try:
+            ip = ipaddress.ip_address(candidate)
+        except ValueError:
+            return False
     return any(ip in net for net in _PRIVATE_NETS if net.version == ip.version)
 
 

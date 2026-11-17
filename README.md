@@ -39,6 +39,18 @@ cd ting-dashboard
 docker compose up -d
 ```
 
+Prefer the prebuilt image over a local build? Copy
+[`examples/docker-compose.yml`](examples/docker-compose.yml) instead — same stack,
+pinned to the released tag, no clone-and-build:
+
+```bash
+mkdir -p ~/ting && cd ~/ting
+curl -O https://raw.githubusercontent.com/joescars/ting-dashboard/main/examples/docker-compose.yml
+curl -o .env https://raw.githubusercontent.com/joescars/ting-dashboard/main/.env.example
+$EDITOR .env                      # set DASHBOARD_PASSWORD
+docker compose up -d
+```
+
 Then open `http://<host>:8097`, sign in with the password `setup.sh` printed
 (also in `.env`), and link your Ting account when the setup page appears:
 

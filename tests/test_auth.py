@@ -127,6 +127,30 @@ async def test_setup_flow(aiohttp_client, app_env, monkeypatch):
     assert (await (await cl.get("/api/session")).json())["signed_in"] is True
 
 
+class _FakeRequest:
+    def __init__(self, remote, headers=None):
+        self.remote = remote
+        self.headers = headers or {}
+
+
+def test_forwarded_headers_are_only_trusted_from_loopback():
+    from typing import cast
+
+    from app.authz import private_request
+
+    def req(remote, headers=None):
+        return private_request(cast("web.Request", _FakeRequest(remote, headers)))
+
+    # A remote peer claiming 127.0.0.1 gets no credit...
+    assert not req("8.8.8.8", {"X-Forwarded-For": "127.0.0.1"})
+    # ...but a local proxy forwarding a public client is still identified.
+    assert not req("127.0.0.1", {"X-Forwarded-For": "8.8.8.8"})
+    assert req("127.0.0.1", {"X-Forwarded-For": "192.168.68.121"})
+    assert req("192.168.68.50")
+    assert not req("203.0.113.9")
+    assert not req(None)
+
+
 async def test_setup_requires_private_network(aiohttp_client, app_env):
     app = main.make_app(demo=False)
     cl = await aiohttp_client(app)

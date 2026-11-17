@@ -9,6 +9,8 @@ changes bump the major version.
 First public release.
 
 ### Added
+
+- `examples/docker-compose.yml` — stack for the prebuilt image, no build step.
 - Browser-based onboarding: link a Ting account at `/setup` with a one-time
   code from the container log, no credentials in `.env` required.
 - Optional `DASHBOARD_PASSWORD` with HMAC-signed session cookies, login rate
