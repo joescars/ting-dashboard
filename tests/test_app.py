@@ -260,6 +260,9 @@ async def test_http_demo(aiohttp_client, tmp_path, monkeypatch):
     r = await cl.get("/")
     assert r.status == 200 and "Content-Security-Policy" in r.headers
     assert (await cl.get("/static/app.js")).status == 200
+    # assets must revalidate so a container update is never masked by a
+    # browser's heuristic cache of the previous release's app.js
+    assert (await cl.get("/static/app.js")).headers["Cache-Control"] == "no-cache"
     assert (await cl.get("/static/../app/main.py")).status in (403, 404)
     # SSE delivers state + samples
     resp = await cl.get("/api/live")

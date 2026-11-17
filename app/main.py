@@ -508,6 +508,20 @@ async def auth_gate(request: web.Request, handler):
 
 
 @web.middleware
+async def static_revalidate(request: web.Request, handler):
+    """Static assets must revalidate (ETag/Last-Modified), like index.html.
+
+    Without a Cache-Control header browsers heuristic-cache app.js and keep
+    running the previous release's code after a container update, while the
+    updated HTML around it disagrees with it.
+    """
+    resp = await handler(request)
+    if request.path.startswith("/static/"):
+        resp.headers.setdefault("Cache-Control", "no-cache")
+    return resp
+
+
+@web.middleware
 async def security_headers(request: web.Request, handler):
     resp = await handler(request)
     resp.headers.setdefault("X-Content-Type-Options", "nosniff")
@@ -578,7 +592,7 @@ def make_app(demo: bool | None = None) -> web.Application:
         raise SystemExit(problem)
     if demo is None:
         demo = os.environ.get("TING_DEMO", "").lower() in ("1", "true", "yes")
-    app = web.Application(middlewares=[security_headers, auth_gate])
+    app = web.Application(middlewares=[static_revalidate, security_headers, auth_gate])
     app["hub"] = Hub(demo=demo)
     app["authz"] = Authz(const.DATA_DIR)
     app.router.add_get("/", index)
