@@ -24,7 +24,7 @@ def test_store_buckets_and_history(tmp_path):
     base = now - now % 5 - 60
     for i in range(48):  # 12 s of 4 Hz-ish samples spread across buckets
         t = base + i * 0.25
-        s.add_sample("S1", t, 120 + (i % 4), 122 + (i % 4), 118)
+        s.add_sample("S1", t, 120 + (i % 4), 122 + (i % 4), 118, i % 3)
     s.flush_all()
     h = s.history("S1", 3600)
     assert h["step"] == 5
@@ -32,6 +32,7 @@ def test_store_buckets_and_history(tmp_path):
     p = h["points"][0]
     assert p["min"] == 120 and p["max"] == 123 and p["avg"] == 121.5
     assert p["hi"] == 125 and p["lo"] == 118
+    assert p["peak"] == 0.95 and p["peak_hi"] == 2
     assert h["stats"]["samples"] == 48
     # long ranges are downsampled to <= 720 points with whole-bucket steps
     h30 = s.history("S1", 30 * 86400)
@@ -296,6 +297,9 @@ async def test_live_chart_plots_hifi_alongside_voltage(aiohttp_client, tmp_path,
     recent = await (await cl.get(f"/api/recent?station={serial}")).json()
     assert recent, "expected recent samples"
     assert "AveragePeaksMax" in recent[-1]["m"]
+
+    history = await (await cl.get(f"/api/history?station={serial}&range=24h")).json()
+    assert history["points"] and any(point["peak"] > 0 for point in history["points"])
 
     js = (await (await cl.get("/static/app.js")).text())
     # a high/low band is drawn for voltage but must NOT be drawn for peaks

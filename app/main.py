@@ -89,6 +89,7 @@ class Hub:
             "v": round(s.voltage, 2),
             "hi": round(s.voltage_hi, 2),
             "lo": round(s.voltage_lo, 2),
+            "peak": round(s.average_peaks_max, 2),
         }
         self.latest[station] = point
         # Everything the frame carried beyond voltage: THD, line frequency,
@@ -103,7 +104,7 @@ class Hub:
         cutoff = ts - RECENT_SECONDS
         while buf and buf[0]["t"] < cutoff:
             buf.popleft()
-        store.add_sample(station, ts, s.voltage, s.voltage_hi, s.voltage_lo)
+        store.add_sample(station, ts, s.voltage, s.voltage_hi, s.voltage_lo, s.average_peaks_max)
         self.publish("sample", point)
 
     def on_stream_status(self, station: str, state: str, reason: str | None) -> None:
@@ -226,7 +227,8 @@ async def demo_loop(app: web.Application) -> None:
         for i in range(int(86400 / store.bucket_seconds), 0, -1):
             t = now - i * store.bucket_seconds
             base = 121 + 1.5 * math.sin(t / 7200) + random.gauss(0, 0.2)
-            store.add_sample(serial, t, base, base + 0.6, base - 0.6)
+            peak = float(random.choice([0, 1, 2, 3, 4, 4, 5]))
+            store.add_sample(serial, t, base, base + 0.6, base - 0.6, peak)
         store.flush_all()
     hub.on_stream_status(serial, "live", None)
     while True:
