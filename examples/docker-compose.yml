@@ -12,7 +12,7 @@
 # electrical data.
 services:
   ting:
-    image: ghcr.io/joescars/ting-dashboard:1.0.0
+    image: ghcr.io/joescars/ting-dashboard:1.0.1
     container_name: ting-dashboard
     restart: unless-stopped
 
