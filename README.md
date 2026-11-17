@@ -33,7 +33,7 @@ that needs no internet access to render.
 ## Quick start
 
 ```bash
-git clone https://github.com/<you>/ting-dashboard.git
+git clone https://github.com/joescars/ting-dashboard.git
 cd ting-dashboard
 ./scripts/setup.sh          # creates .env with a generated password, builds
 docker compose up -d
