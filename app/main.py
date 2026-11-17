@@ -54,6 +54,7 @@ class Hub:
         self.poll_error: str | None = None
         self.stream_status: dict[str, dict[str, Any]] = {}
         self.latest: dict[str, dict[str, Any]] = {}
+        self.signal: dict[str, dict[str, float]] = {}
         self.recent: dict[str, deque] = {}
         self.subscribers: set[asyncio.Queue] = set()
 
@@ -68,6 +69,7 @@ class Hub:
             "poll_interval": const.POLL_INTERVAL,
             "streams": self.stream_status,
             "latest": self.latest,
+            "signal": self.signal,
             "server_time": time.time(),
         }
 
@@ -89,6 +91,13 @@ class Hub:
             "lo": round(s.voltage_lo, 2),
         }
         self.latest[station] = point
+        # Everything the frame carried beyond voltage: THD, line frequency,
+        # peak counts — whatever Ting names them. The UI labels what it knows
+        # and shows the rest under their raw names.
+        signal = dict(s.extras)
+        self.signal[station] = signal
+        if signal:
+            point["m"] = {k: round(v, 4) for k, v in signal.items()}
         buf = self.recent.setdefault(station, deque(maxlen=RECENT_SECONDS * 6))
         buf.append(point)
         cutoff = ts - RECENT_SECONDS
@@ -223,8 +232,15 @@ async def demo_loop(app: web.Application) -> None:
     while True:
         t = time.time()
         v = 121 + 1.5 * math.sin(t / 7200) + random.gauss(0, 0.25)
-        sample = VoltageData(datetime.fromtimestamp(t, UTC), v, v + random.uniform(0.2, 0.9),
-                             v - random.uniform(0.2, 0.9), v + 0.5)
+        sample = VoltageData(
+            datetime.fromtimestamp(t, UTC), v, v + random.uniform(0.2, 0.9),
+            v - random.uniform(0.2, 0.9), random.choice([0, 1, 2, 3, 4, 4, 5]),
+            extras={
+                "Thd": round(random.gauss(2.8, 0.25), 2),
+                "Frequency": round(60 + random.gauss(0, 0.012), 3),
+                "AveragePeaksMax": float(random.choice([0, 1, 2, 3, 4, 4, 5])),
+            },
+        )
         hub.on_sample(serial, sample, store)
         hub.last_poll = time.time()
         await asyncio.sleep(0.25)

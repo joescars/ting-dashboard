@@ -100,6 +100,11 @@ class VoltageData:
     # connection so new fields (e.g. harmonic distortion) can be identified
     # from a debug log without a packet capture.
     fields: tuple[str, ...] = field(default=(), compare=False, repr=False)
+    # Scalar fields the payload carries beyond the voltage ones — THD,
+    # line frequency, peak counts, whatever else Ting adds. Surfaced as-is
+    # so the dashboard can show the same numbers as the mobile app without
+    # hard-coding a field name that may change upstream.
+    extras: dict[str, float] = field(default_factory=dict, compare=False, repr=False)
 
 
 def encode_varint(value: int) -> bytes:
@@ -273,6 +278,17 @@ def decode_voltage_update(message: list[Any]) -> VoltageData | None:
         except (KeyError, TypeError, ValueError):
             return default
 
+    known = {"Voltage", "VoltageHi", "VoltageLo", "DataTimeUtc"}
+    extras: dict[str, float] = {}
+    for key, value in payload.items():
+        name = str(key)
+        if name in known or isinstance(value, (str, bytes, bool)):
+            continue
+        try:
+            extras[name] = _finite_float(value)
+        except (TypeError, ValueError):
+            continue  # nested dicts/arrays are not signal scalars
+
     return VoltageData(
         timestamp=_decode_timestamp(payload.get("DataTimeUtc")),
         voltage=voltage,
@@ -280,6 +296,7 @@ def decode_voltage_update(message: list[Any]) -> VoltageData | None:
         voltage_lo=_number("VoltageLo", voltage),
         average_peaks_max=_number("AveragePeaksMax", 0.0),
         fields=tuple(sorted(str(key) for key in payload)),
+        extras=extras,
     )
 
 

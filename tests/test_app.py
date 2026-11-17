@@ -128,6 +128,42 @@ def _voltage_frame(v):
     return protocol.frame_messagepack([1, {}, None, "updateComboBinaryData", [payload]])
 
 
+def test_decode_extra_measurements():
+    """THD / frequency / peak count ride along as extras, non-scalars dropped."""
+    payload = {
+        "Voltage": 120.8, "VoltageHi": 124.9, "VoltageLo": 116.3,
+        "DataTimeUtc": datetime.now(UTC).isoformat(),
+        "Thd": 2.76, "Frequency": 60.01, "AveragePeaksMax": 4,
+        "StationName": "kitchen",          # string, not a measurement
+        "Nested": {"ignored": 1.0},        # not a scalar
+        "Bad": float("nan"),               # not finite
+    }
+    msg = [1, {}, None, "updateComboBinaryData", [payload]]
+    data = protocol.decode_voltage_update(msg)
+    assert data is not None
+    assert data.extras == {"Thd": 2.76, "Frequency": 60.01, "AveragePeaksMax": 4.0}
+    assert "StationName" in data.fields
+
+
+async def test_signal_reaches_state_and_samples(aiohttp_client, tmp_path, monkeypatch):
+    from app import const, main
+
+    monkeypatch.setattr(const, "DATA_DIR", str(tmp_path))
+    cl = await aiohttp_client(main.make_app(demo=True))
+    state = None
+    for _ in range(50):
+        state = await (await cl.get("/api/state")).json()
+        if state["latest"]:
+            break
+        await asyncio.sleep(0.1)
+    assert state is not None
+    station = state["devices"][0]["serial"]
+    sig = state["signal"][station]
+    assert set(sig) == {"Thd", "Frequency", "AveragePeaksMax"}
+    recent = await (await cl.get(f"/api/recent?station={station}")).json()
+    assert "m" in recent[-1] and "Thd" in recent[-1]["m"]
+
+
 async def test_stream_against_fake_hub(monkeypatch, aiohttp_server):
     seen = {"invocations": [], "headers": None}
 

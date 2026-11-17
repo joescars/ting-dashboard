@@ -15,6 +15,10 @@ that needs no internet access to render.
 
 - **Live voltage**, ~4 samples/second streamed over SSE, with a high/low
   envelope, sample rate, and ANSI C84.1 range-A markers
+- **Signal strip** — every other measurement the voltage frame carries, shown
+  beside the reading: THD, line frequency, and the peak ("hi-fi") count. Fields
+  are passed through from the payload, so a new one appears without a code
+  change.
 - **Hazard tiles** — fire alert, electrical fire hazard, utility fire hazard,
   power quality, frozen-pipe risk, learning mode, cloud poll age
 - **History** — 5-second buckets in SQLite, downsampled on the fly for
@@ -90,7 +94,7 @@ endpoints, and no endpoint mutates Ting state.
 
 | Endpoint | Purpose |
 | --- | --- |
-| `GET /api/state` | auth state, devices, hazard status, stream state |
+| `GET /api/state` | auth state, devices, hazard status, stream state, `signal` (THD/frequency/peaks) |
 | `GET /api/recent?station=SERIAL` | last 5 minutes of samples (seeded from history) |
 | `GET /api/history?station=SERIAL&range=1h\|6h\|24h\|7d\|30d` | downsampled buckets |
 | `GET /api/events?station=SERIAL` | notifications + status-change log |

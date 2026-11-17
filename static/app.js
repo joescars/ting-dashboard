@@ -106,6 +106,7 @@
   function renderState() {
     const s = st.snap;
     if (!s) return;
+    renderSignal((s.signal || {})[st.station]);
     const devices = s.devices || [];
     if (!devices.some((d) => d.serial === st.station)) {
       const prev = st.station;
@@ -240,8 +241,48 @@
     requestDraw();
   }
 
+  // Extra stream measurements — THD, line frequency, peak ("hi-fi") count.
+  // Ting names these fields; we label the ones we recognise and show any
+  // other scalar under its raw name, so a new field appears without a code
+  // change.
+  const SIG_LABELS = {
+    thd: ["THD", "%", 2],
+    frequency: ["Freq", "Hz", 2],
+    linefrequency: ["Freq", "Hz", 2],
+    frequencyhz: ["Freq", "Hz", 2],
+    averagepeaksmax: ["Hi-Fi", "", 0],
+    peaks: ["Hi-Fi", "", 0],
+  };
+  const SIG_ORDER = ["thd", "frequency", "linefrequency", "frequencyhz", "averagepeaksmax"];
+
+  function renderSignal(meas) {
+    const strip = $("signal-strip");
+    const entries = Object.entries(meas || {})
+      .filter(([, v]) => typeof v === "number" && Number.isFinite(v));
+    if (!entries.length) {
+      strip.replaceChildren();
+      strip.hidden = true;
+      return;
+    }
+    entries.sort((a, b) => {
+      const ia = SIG_ORDER.indexOf(a[0].toLowerCase());
+      const ib = SIG_ORDER.indexOf(b[0].toLowerCase());
+      return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib)
+        || a[0].localeCompare(b[0]);
+    });
+    strip.replaceChildren(...entries.map(([key, value]) => {
+      const [label, unit, digits] = SIG_LABELS[key.toLowerCase()] || [key, "", 2];
+      const cell = el("div", "sig");
+      cell.append(el("span", "sig-label", label), el("span", "sig-num mono", Number(value).toFixed(digits)));
+      if (unit) cell.append(el("span", "sig-unit", unit));
+      return cell;
+    }));
+    strip.hidden = false;
+  }
+
   function renderHero() {
     const p = st.recent[st.recent.length - 1];
+    renderSignal(p?.m);
     $("live-v").textContent = fmtV(p?.v);
     $("live-hi").textContent = p ? `${fmtV(p.hi)} V` : "—";
     $("live-lo").textContent = p ? `${fmtV(p.lo)} V` : "—";
@@ -487,6 +528,9 @@
   // ---------------------------------------------------------------- SSE
   const sse = { ok: true, es: null };
   function connect() {
+    // Seed the strip from the last snapshot so it is not blank until the
+    // first sample frame arrives.
+    renderSignal((st.snap?.signal || {})[st.station]);
     const es = new EventSource("/api/live");
     sse.es = es;
     es.addEventListener("open", () => { sse.ok = true; if (st.snap) renderState(); });

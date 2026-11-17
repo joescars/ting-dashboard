@@ -18,6 +18,9 @@ First public release.
 - PWA manifest and icons (installable on iOS/Android/desktop), version in the
   footer, ⋮ menu with *Sign out* and *Unlink Ting account*.
 - `/api/session`, `/api/version`, `/api/unlink`; `/manifest.webmanifest`.
+- Signal strip: THD, line frequency, and peak ("hi-fi") count taken from the
+  voltage frame's extra fields; unknown scalar fields are shown under their raw
+  name, and `/api/state` exposes them as `signal`.
 - The 5-minute live chart is seeded from stored history, so a freshly opened
   page is drawn full instead of filling in from the right.
 - Actionable startup error when the data directory is not writable.
