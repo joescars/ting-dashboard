@@ -6,6 +6,19 @@ something you can open on a wall tablet, a TV, or any browser in the house.
 
 ![Dashboard](docs/preview.png)
 
+The dashboard also supports a dark theme:
+
+![Dashboard in dark mode](docs/dark.png)
+
+The History view includes the Hi-Fi peak series on its own right-hand scale,
+so the small peak counts remain readable alongside the 110–130 V voltage range.
+The blue line is voltage, the light-blue band is the high/low envelope, and the
+orange dashed line is Hi-Fi (peaks). History statistics include average voltage,
+average bucket minimum and maximum, lowest dip, highest voltage peak, and
+coverage. The range selector supports 1h, 6h, 24h, 7d, and 30d.
+
+![History view with voltage history, range controls, statistics, and Hi-Fi legend](docs/history-hifi.png)
+
 Ting itself is cloud-only: the plug exposes no local ports (a full TCP scan and
 UDP probes come back empty), so this project talks to the same unofficial API the
 mobile apps use, keeps the history locally in SQLite, and serves a Material 3 UI
