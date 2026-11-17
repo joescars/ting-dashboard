@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#0b57d0">
+<title>Sign in · Ting Dashboard</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/static/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/static/app.css">
+<script src="/static/auth.js" defer></script>
+</head>
+<body class="auth-body">
+<main class="auth-wrap">
+  <div class="auth-card">
+    <div class="auth-brand">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2 4.5 13.5H11l-1 8.5L19.5 10H13l1-8z"/></svg>
+      <span>Ting Dashboard</span>
+    </div>
+    <h1>Welcome back</h1>
+    <p class="auth-sub">This dashboard is password protected.</p>
+    <form id="form" novalidate>
+      <label class="field">
+        <span class="field-label">Dashboard password</span>
+        <input id="password" name="password" type="password" autocomplete="current-password"
+               autofocus required>
+      </label>
+      <div id="error" class="auth-error" role="alert" hidden></div>
+      <button id="submit" class="btn-filled" type="submit">
+        <span class="btn-label">Sign in</span>
+      </button>
+    </form>
+    <p class="auth-foot">Forgot it? Set <code>DASHBOARD_PASSWORD</code> in your
+      <code>.env</code> and restart the container.</p>
+  </div>
+</main>
+</body>
+</html>

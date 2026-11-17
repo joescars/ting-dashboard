@@ -106,6 +106,7 @@
   function renderState() {
     const s = st.snap;
     if (!s) return;
+    renderSignal((s.signal || {})[st.station]);
     const devices = s.devices || [];
     if (!devices.some((d) => d.serial === st.station)) {
       const prev = st.station;
@@ -240,8 +241,48 @@
     requestDraw();
   }
 
+  // Extra stream measurements — THD, line frequency, peak ("hi-fi") count.
+  // Ting names these fields; we label the ones we recognise and show any
+  // other scalar under its raw name, so a new field appears without a code
+  // change.
+  const SIG_LABELS = {
+    thd: ["THD", "%", 2],
+    frequency: ["Freq", "Hz", 2],
+    linefrequency: ["Freq", "Hz", 2],
+    frequencyhz: ["Freq", "Hz", 2],
+    averagepeaksmax: ["Hi-Fi", "", 0],
+    peaks: ["Hi-Fi", "", 0],
+  };
+  const SIG_ORDER = ["thd", "frequency", "linefrequency", "frequencyhz", "averagepeaksmax"];
+
+  function renderSignal(meas) {
+    const strip = $("signal-strip");
+    const entries = Object.entries(meas || {})
+      .filter(([, v]) => typeof v === "number" && Number.isFinite(v));
+    if (!entries.length) {
+      strip.replaceChildren();
+      strip.hidden = true;
+      return;
+    }
+    entries.sort((a, b) => {
+      const ia = SIG_ORDER.indexOf(a[0].toLowerCase());
+      const ib = SIG_ORDER.indexOf(b[0].toLowerCase());
+      return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib)
+        || a[0].localeCompare(b[0]);
+    });
+    strip.replaceChildren(...entries.map(([key, value]) => {
+      const [label, unit, digits] = SIG_LABELS[key.toLowerCase()] || [key, "", 2];
+      const cell = el("div", "sig");
+      cell.append(el("span", "sig-label", label), el("span", "sig-num mono", Number(value).toFixed(digits)));
+      if (unit) cell.append(el("span", "sig-unit", unit));
+      return cell;
+    }));
+    strip.hidden = false;
+  }
+
   function renderHero() {
     const p = st.recent[st.recent.length - 1];
+    renderSignal(p?.m);
     $("live-v").textContent = fmtV(p?.v);
     $("live-hi").textContent = p ? `${fmtV(p.hi)} V` : "—";
     $("live-lo").textContent = p ? `${fmtV(p.lo)} V` : "—";
@@ -487,6 +528,9 @@
   // ---------------------------------------------------------------- SSE
   const sse = { ok: true, es: null };
   function connect() {
+    // Seed the strip from the last snapshot so it is not blank until the
+    // first sample frame arrives.
+    renderSignal((st.snap?.signal || {})[st.station]);
     const es = new EventSource("/api/live");
     sse.es = es;
     es.addEventListener("open", () => { sse.ok = true; if (st.snap) renderState(); });
@@ -504,9 +548,82 @@
     });
   }
 
+  // ---------------------------------------------------------------- menu
+  const sess = { password_required: false, setup_available: false, version: null };
+  const menu = $("menu"), menuBtn = $("menu-btn");
+  const closeMenu = () => { menu.hidden = true; menuBtn.setAttribute("aria-expanded", "false"); };
+  menuBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const open = menu.hidden;
+    menu.hidden = !open;
+    menuBtn.setAttribute("aria-expanded", String(open));
+  });
+  document.addEventListener("click", (e) => { if (!menu.contains(e.target)) closeMenu(); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeMenu(); });
+
+  async function loadSession() {
+    try {
+      const s = await getJSON("/api/session");
+      Object.assign(sess, s);
+    } catch { /* offline */ }
+    $("menu-logout").hidden = !sess.password_required;
+    $("menu-setup").hidden = !sess.setup_available;
+    $("menu-unlink").hidden = !!sess.demo;
+    $("menu-meta").textContent = sess.demo
+      ? "Demo mode — no Ting account linked."
+      : sess.password_required
+        ? "Dashboard password is set."
+        : "Open access: anyone who can reach this port can view this dashboard. Set DASHBOARD_PASSWORD to require a sign-in.";
+  }
+
+  $("menu-logout").addEventListener("click", async () => {
+    await fetch("/api/logout", { method: "POST" }).catch(() => {});
+    location.href = "/login";
+  });
+
+  $("menu-unlink").addEventListener("click", async () => {
+    closeMenu();
+    if (!confirm("Unlink the Ting account? Live data stops until you link an account again.")) return;
+    const r = await fetch("/api/unlink", { method: "POST" });
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({}));
+      alert(d.error || "Could not unlink");
+      return;
+    }
+    location.href = "/setup";
+  });
+
+  // PWA install (Chromium only; iOS uses Share → Add to Home Screen)
+  let installEvent = null;
+  addEventListener("beforeinstallprompt", (e) => {
+    e.preventDefault();
+    installEvent = e;
+    $("menu-install").hidden = false;
+  });
+  $("menu-install").addEventListener("click", async (e) => {
+    e.preventDefault();
+    closeMenu();
+    if (!installEvent) return;
+    installEvent.prompt();
+    await installEvent.userChoice;
+    installEvent = null;
+    $("menu-install").hidden = true;
+  });
+  addEventListener("appinstalled", () => { $("menu-install").hidden = true; });
+
+  async function loadMeta() {
+    try {
+      const v = await getJSON("/api/version");
+      sess.version = v.version;
+      $("version").textContent = `v${v.version}`;
+    } catch { /* offline */ }
+  }
+
   // ---------------------------------------------------------------- boot
   applyTheme(theme);
   setRange(st.range);
+  loadSession();
+  loadMeta();
   connect();
   setInterval(loadHistory, 60000);
   setInterval(loadEvents, 60000);

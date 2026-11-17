@@ -5,7 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="color-scheme" content="light dark">
   <title>Ting Dashboard</title>
+  <meta name="theme-color" content="#0b57d0" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#131314" media="(prefers-color-scheme: dark)">
+  <meta name="description" content="Self-hosted monitor for a Whisker Labs Ting electrical fire sensor">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Ting">
+  <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
   <link rel="stylesheet" href="/static/app.css">
   <script src="/static/app.js" defer></script>
 </head>
@@ -27,6 +34,20 @@
       <button class="icon-btn state-layer" id="theme-btn" type="button" aria-label="Theme: auto" title="Theme: auto">
         <svg viewBox="0 0 24 24" aria-hidden="true"><g id="theme-icon"><path d="M12 3a9 9 0 1 0 0 18V3z"/></g></svg>
       </button>
+      <div class="menu-wrap">
+        <button class="icon-btn state-layer" id="menu-btn" type="button"
+                aria-label="More" aria-haspopup="menu" aria-expanded="false">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm0 6a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm0 6a2 2 0 1 0 0-4 2 2 0 0 0 0 4z"/></svg>
+        </button>
+        <div class="menu" id="menu" role="menu" hidden>
+          <a class="menu-item" id="menu-install" role="menuitem" href="#" hidden>Install app</a>
+          <a class="menu-item" id="menu-setup" role="menuitem" href="/setup" hidden>Link an account</a>
+          <button class="menu-item" id="menu-logout" role="menuitem" type="button" hidden>Sign out of dashboard</button>
+          <button class="menu-item danger" id="menu-unlink" role="menuitem" type="button">Unlink Ting account</button>
+          <div class="menu-sep" role="separator"></div>
+          <div class="menu-meta" id="menu-meta"></div>
+        </div>
+      </div>
     </div>
   </header>
 
@@ -50,6 +71,7 @@
           <div><span class="muted">Low</span> <span id="live-lo" class="mono">—</span></div>
           <div><span class="muted">Rate</span> <span id="live-rate" class="mono">—</span></div>
         </div>
+        <div class="signal-strip" id="signal-strip" hidden></div>
         <div class="range-meter" aria-hidden="true">
           <div class="range-band"></div>
           <div class="range-marker" id="range-marker"></div>
@@ -106,7 +128,8 @@
     </article>
 
     <footer class="muted small footer">
-      Data from Whisker Labs' unofficial cloud API (ha-whisker-ting protocol). Not affiliated with Whisker Labs.
+      <span>Data from Whisker Labs' unofficial cloud API (ha-whisker-ting protocol). Not affiliated with Whisker Labs.</span>
+      <span id="version"></span>
     </footer>
   </main>
 </body>

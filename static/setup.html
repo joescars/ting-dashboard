@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#0b57d0">
+<title>Link your Ting account · Ting Dashboard</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/static/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/static/app.css">
+<script src="/static/auth.js" defer></script>
+</head>
+<body class="auth-body">
+<main class="auth-wrap">
+  <div class="auth-card">
+    <div class="auth-brand">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2 4.5 13.5H11l-1 8.5L19.5 10H13l1-8z"/></svg>
+      <span>Ting Dashboard</span>
+    </div>
+    <h1>Link your Ting account</h1>
+    <p class="auth-sub">One-time setup. Your password is used to sign in once and is
+      never stored — only a refresh token stays on this server.</p>
+
+    <form id="form" novalidate data-mode="setup">
+      <label class="field">
+        <span class="field-label">Ting email</span>
+        <input id="email" name="email" type="email" autocomplete="username" autofocus required>
+      </label>
+      <label class="field">
+        <span class="field-label">Ting password</span>
+        <input id="password" name="password" type="password" autocomplete="current-password" required>
+      </label>
+      <label class="field">
+        <span class="field-label">Setup code</span>
+        <input id="token" name="token" type="text" autocomplete="off" spellcheck="false" required>
+        <span class="field-hint">Printed in the container log on first start.</span>
+      </label>
+      <div id="error" class="auth-error" role="alert" hidden></div>
+      <button id="submit" class="btn-filled" type="submit">
+        <span class="btn-label">Link account</span>
+      </button>
+    </form>
+
+    <details class="auth-help">
+      <summary>Where do I find the setup code?</summary>
+      <pre><code>docker compose logs ting | grep -A2 "setup code"</code></pre>
+      <p>Or read it straight from the mounted data directory:
+        <code>sudo cat data/setup_token</code>.</p>
+    </details>
+
+    <p class="auth-foot">Your Ting credentials go only to Whisker Labs' Cognito
+      endpoint — never to this dashboard's operator.</p>
+  </div>
+</main>
+</body>
+</html>

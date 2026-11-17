@@ -8,6 +8,16 @@ RUN pip install --no-cache-dir -r requirements.txt \
  && useradd --uid 10001 --create-home ting \
  && mkdir -p /data && chown ting:ting /data
 
+ARG TING_VERSION=dev
+ENV TING_VERSION=${TING_VERSION}
+
+LABEL org.opencontainers.image.title="Ting Dashboard" \
+      org.opencontainers.image.description="Self-hosted web dashboard for a Whisker Labs Ting electrical fire sensor" \
+      org.opencontainers.image.source="https://github.com/simplytoast1/ting-dashboard" \
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.version="${TING_VERSION}"
+
+COPY VERSION ./
 COPY app ./app
 COPY static ./static
 COPY THIRD_PARTY_LICENSE_ha-whisker-ting ./

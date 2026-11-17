@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hmac
 import json
 import logging
 import math
@@ -19,13 +20,23 @@ import aiohttp
 from aiohttp import web
 
 from . import const
+from .authz import (
+    Authz,
+    clear_cookie,
+    private_request,
+    same_origin,
+    set_cookie,
+    writable_problem,
+)
 from .client import AuthStore, NotSignedIn, TingApiError, TingClient
 from .protocol import VoltageData
 from .store import Store
 from .stream import VoltageStream
+from .version import UPSTREAM, version
 
 _LOGGER = logging.getLogger("ting")
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
+PAGES = {"login": "login.html", "setup": "setup.html"}
 RECENT_SECONDS = 300
 RANGES = {"1h": 3600, "6h": 21600, "24h": 86400, "7d": 604800, "30d": 2592000}
 
@@ -43,6 +54,7 @@ class Hub:
         self.poll_error: str | None = None
         self.stream_status: dict[str, dict[str, Any]] = {}
         self.latest: dict[str, dict[str, Any]] = {}
+        self.signal: dict[str, dict[str, float]] = {}
         self.recent: dict[str, deque] = {}
         self.subscribers: set[asyncio.Queue] = set()
 
@@ -57,6 +69,7 @@ class Hub:
             "poll_interval": const.POLL_INTERVAL,
             "streams": self.stream_status,
             "latest": self.latest,
+            "signal": self.signal,
             "server_time": time.time(),
         }
 
@@ -78,6 +91,13 @@ class Hub:
             "lo": round(s.voltage_lo, 2),
         }
         self.latest[station] = point
+        # Everything the frame carried beyond voltage: THD, line frequency,
+        # peak counts — whatever Ting names them. The UI labels what it knows
+        # and shows the rest under their raw names.
+        signal = dict(s.extras)
+        self.signal[station] = signal
+        if signal:
+            point["m"] = {k: round(v, 4) for k, v in signal.items()}
         buf = self.recent.setdefault(station, deque(maxlen=RECENT_SECONDS * 6))
         buf.append(point)
         cutoff = ts - RECENT_SECONDS
@@ -212,11 +232,168 @@ async def demo_loop(app: web.Application) -> None:
     while True:
         t = time.time()
         v = 121 + 1.5 * math.sin(t / 7200) + random.gauss(0, 0.25)
-        sample = VoltageData(datetime.fromtimestamp(t, UTC), v, v + random.uniform(0.2, 0.9),
-                             v - random.uniform(0.2, 0.9), v + 0.5)
+        sample = VoltageData(
+            datetime.fromtimestamp(t, UTC), v, v + random.uniform(0.2, 0.9),
+            v - random.uniform(0.2, 0.9), random.choice([0, 1, 2, 3, 4, 4, 5]),
+            extras={
+                "Thd": round(random.gauss(2.8, 0.25), 2),
+                "Frequency": round(60 + random.gauss(0, 0.012), 3),
+                "AveragePeaksMax": float(random.choice([0, 1, 2, 3, 4, 4, 5])),
+            },
+        )
         hub.on_sample(serial, sample, store)
         hub.last_poll = time.time()
         await asyncio.sleep(0.25)
+
+
+# --------------------------------------------------------------------------
+# Auth, onboarding, metadata
+# --------------------------------------------------------------------------
+
+def _json_error(status: int, message: str) -> web.Response:
+    return web.json_response({"error": message}, status=status)
+
+
+async def page_login(request: web.Request) -> web.FileResponse:
+    return web.FileResponse(STATIC_DIR / PAGES["login"], headers={"Cache-Control": "no-store"})
+
+
+async def page_setup(request: web.Request) -> web.FileResponse:
+    return web.FileResponse(STATIC_DIR / PAGES["setup"], headers={"Cache-Control": "no-store"})
+
+
+async def api_session(request: web.Request) -> web.Response:
+    authz: Authz = request.app["authz"]
+    hub: Hub = request.app["hub"]
+    return web.json_response({
+        "password_required": bool(authz.password),
+        "authenticated": (not authz.password) or authz.valid(request.cookies.get("ting_session")),
+        "signed_in": hub.auth_state in ("signed_in", "demo"),
+        "demo": hub.demo,
+        "setup_available": bool(authz.setup_token) and not authz.signed_in_marker() and not hub.demo,
+    })
+
+
+async def api_login(request: web.Request) -> web.Response:
+    authz: Authz = request.app["authz"]
+    if not authz.password:
+        return _json_error(400, "No dashboard password is configured")
+    if not same_origin(request):
+        return _json_error(403, "Cross-origin request rejected")
+    peer = request.remote or "?"
+    if authz.throttled(peer):
+        return _json_error(429, "Too many attempts; try again in a few minutes")
+    try:
+        body = await request.json()
+    except ValueError:
+        return _json_error(400, "Invalid request body")
+    if not hmac_compare(body.get("password", ""), authz.password):
+        authz.note_failure(peer)
+        await asyncio.sleep(0.6)  # slow down guessing
+        return _json_error(401, "Incorrect password")
+    authz.clear_failures(peer)
+    resp = web.json_response({"ok": True})
+    set_cookie(request, resp, authz.issue())
+    return resp
+
+
+async def api_logout(request: web.Request) -> web.Response:
+    resp = web.json_response({"ok": True})
+    clear_cookie(resp)
+    return resp
+
+
+async def api_setup(request: web.Request) -> web.Response:
+    """One-time onboarding: bind the Ting account from the browser."""
+    authz: Authz = request.app["authz"]
+    hub: Hub = request.app["hub"]
+    if hub.demo:
+        return _json_error(400, "Setup is unavailable in demo mode")
+    if authz.setup_token is None or authz.signed_in_marker():
+        return _json_error(409, "An account is already linked")
+    if not same_origin(request):
+        return _json_error(403, "Cross-origin request rejected")
+    peer = request.remote or "?"
+    if authz.throttled(peer):
+        return _json_error(429, "Too many attempts; try again in a few minutes")
+    if not private_request(request):
+        return _json_error(403, "Setup is only allowed from a private network")
+    try:
+        body = await request.json()
+    except ValueError:
+        return _json_error(400, "Invalid request body")
+    if not authz.check_setup_token(body.get("token")):
+        authz.note_failure(peer)
+        return _json_error(403, "Invalid setup code — check the container log")
+    email = str(body.get("email") or "").strip()
+    password = str(body.get("password") or "")
+    if not email or not password:
+        return _json_error(400, "Email and password are required")
+
+    client: TingClient = request.app["client"]
+    try:
+        await client.sign_in(email, password)
+    except NotSignedIn as err:
+        authz.note_failure(peer)
+        return _json_error(401, f"Ting rejected the sign-in: {err}")
+    except TingApiError as err:
+        return _json_error(502, str(err))
+    authz.clear_failures(peer)
+    authz.consume_setup_token()
+    hub.auth_state, hub.auth_message = "signed_in", None
+    hub.publish("state", hub.snapshot())
+    _LOGGER.info("Setup complete: account linked, password discarded (only a refresh token is stored)")
+    return web.json_response({"ok": True})
+
+
+async def api_version(request: web.Request) -> web.Response:
+    return web.json_response({
+        "version": version(),
+        "protocol_source": UPSTREAM,
+        "demo": request.app["hub"].demo,
+    })
+
+
+async def api_unlink(request: web.Request) -> web.Response:
+    """Forget the stored refresh token (used when a token is revoked)."""
+    if not same_origin(request):
+        return _json_error(403, "Cross-origin request rejected")
+    hub: Hub = request.app["hub"]
+    client: TingClient | None = request.app.get("client")
+    if client is None:
+        return _json_error(400, "Nothing linked")
+    client.sign_out()
+    for stream in request.app["streams"].values():
+        await stream.stop()
+    request.app["streams"].clear()
+    request.app["authz"].setup_token = request.app["authz"]._init_setup_token()
+    hub.auth_state, hub.auth_message = "signed_out", "Account unlinked"
+    hub.devices, hub.latest, hub.stream_status = [], {}, {}
+    hub.publish("state", hub.snapshot())
+    return web.json_response({"ok": True})
+
+
+async def manifest(request: web.Request) -> web.Response:
+    return web.json_response({
+        "name": "Ting Dashboard",
+        "short_name": "Ting",
+        "description": "Self-hosted monitor for a Whisker Labs Ting electrical fire sensor",
+        "start_url": "/",
+        "scope": "/",
+        "display": "standalone",
+        "background_color": "#f8fafd",
+        "theme_color": "#0b57d0",
+        "icons": [
+            {"src": "/static/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+            {"src": "/static/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
+            {"src": "/static/icon-maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable"},
+            {"src": "/static/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"},
+        ],
+    })
+
+
+def hmac_compare(given: str, expected: str) -> bool:
+    return hmac.compare_digest(given.encode(), expected.encode())
 
 
 # --------------------------------------------------------------------------
@@ -251,17 +428,21 @@ async def api_recent(request: web.Request) -> web.Response:
     draws the whole window immediately instead of filling in from the right."""
     hub: Hub = request.app["hub"]
     station = _station(request)
-    points = list(hub.recent.get(station, []))
-    if len(points) < 30:
-        hist = await asyncio.to_thread(request.app["store"].history, station, RECENT_SECONDS)
-        seeded = [
-            {"st": station, "t": p["t"] + hist["step"], "v": p["avg"], "hi": p["hi"], "lo": p["lo"]}
-            for p in hist["points"]
-        ]
-        if len(seeded) > len(points):
-            last = seeded[-1]["t"]
-            seeded += [p for p in points if p["t"] > last]
-            points = seeded
+    live = list(hub.recent.get(station, []))
+    # Stored buckets cover the whole window; live samples only cover the time
+    # since this process started. Prefer history and append the newer live
+    # points, so a freshly opened page draws the full chart immediately.
+    hist = await asyncio.to_thread(request.app["store"].history, station, RECENT_SECONDS)
+    step = hist.get("step") or 0
+    seeded = [
+        {"st": station, "t": p["t"] + step, "v": p["avg"], "hi": p["hi"], "lo": p["lo"]}
+        for p in hist["points"]
+    ] if step else []
+    if seeded:
+        cutoff = seeded[-1]["t"]
+        points = seeded + [p for p in live if p["t"] > cutoff]
+    else:
+        points = live
     return web.json_response(points)
 
 
@@ -305,8 +486,23 @@ async def healthz(request: web.Request) -> web.Response:
     return web.json_response({"ok": True, "auth": hub.auth_state})
 
 
-async def index(request: web.Request) -> web.FileResponse:
+async def index(request: web.Request):
+    authz: Authz = request.app["authz"]
+    if authz.setup_token and not authz.signed_in_marker() and not request.app["hub"].demo:
+        raise web.HTTPFound("/setup")
     return web.FileResponse(STATIC_DIR / "index.html", headers={"Cache-Control": "no-cache"})
+
+
+@web.middleware
+async def auth_gate(request: web.Request, handler):
+    authz: Authz | None = request.app.get("authz")
+    if authz is None or not authz.requires_auth(request.path):
+        return await handler(request)
+    if authz.valid(request.cookies.get("ting_session")):
+        return await handler(request)
+    if request.path.startswith("/api/"):
+        return web.json_response({"error": "Sign in to continue"}, status=401)
+    raise web.HTTPFound("/login")
 
 
 @web.middleware
@@ -342,10 +538,24 @@ async def on_startup(app: web.Application) -> None:
     if not client.signed_in and email and password:
         try:
             await client.sign_in(email, password)
+            app["authz"].consume_setup_token()
             _LOGGER.info("Signed in; refresh token saved. You may now remove TING_PASSWORD from .env.")
         except (NotSignedIn, TingApiError) as err:
             hub.auth_state, hub.auth_message = "signed_out", f"Sign-in failed: {err}"
             _LOGGER.error("Sign-in failed: %s", err)
+    authz: Authz = app["authz"]
+    if authz.setup_token and not client.signed_in and not authz.signed_in_marker():
+        _LOGGER.warning("=" * 68)
+        _LOGGER.warning("  No Ting account linked yet. Open /setup in a browser")
+        _LOGGER.warning("  and enter this one-time setup code:")
+        _LOGGER.warning("")
+        _LOGGER.warning("      %s", authz.setup_token)
+        _LOGGER.warning("")
+        _LOGGER.warning("  Find it again: docker compose logs ting | grep -A2 'setup code'")
+        _LOGGER.warning("=" * 68)
+    if not authz.password:
+        _LOGGER.warning("DASHBOARD_PASSWORD is not set: anyone who can reach this "
+                        "port can view your data. Set it before exposing to the internet.")
     app["tasks"].append(asyncio.create_task(poll_loop(app)))
 
 
@@ -362,12 +572,24 @@ async def on_cleanup(app: web.Application) -> None:
 
 
 def make_app(demo: bool | None = None) -> web.Application:
+    if problem := writable_problem(const.DATA_DIR):
+        raise SystemExit(problem)
     if demo is None:
         demo = os.environ.get("TING_DEMO", "").lower() in ("1", "true", "yes")
-    app = web.Application(middlewares=[security_headers])
+    app = web.Application(middlewares=[security_headers, auth_gate])
     app["hub"] = Hub(demo=demo)
+    app["authz"] = Authz(const.DATA_DIR)
     app.router.add_get("/", index)
+    app.router.add_get("/login", page_login)
+    app.router.add_get("/setup", page_setup)
+    app.router.add_get("/manifest.webmanifest", manifest)
     app.router.add_get("/healthz", healthz)
+    app.router.add_get("/api/session", api_session)
+    app.router.add_get("/api/version", api_version)
+    app.router.add_post("/api/login", api_login)
+    app.router.add_post("/api/logout", api_logout)
+    app.router.add_post("/api/setup", api_setup)
+    app.router.add_post("/api/unlink", api_unlink)
     app.router.add_get("/api/state", api_state)
     app.router.add_get("/api/history", api_history)
     app.router.add_get("/api/recent", api_recent)

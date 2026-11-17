@@ -53,6 +53,7 @@ class VoltageStream:
         self._on_sample = on_sample
         self._on_status = on_status
         self._msg_id = 0
+        self._logged_fields = False
         self._task: asyncio.Task | None = None
 
     def start(self) -> None:
@@ -159,6 +160,13 @@ class VoltageStream:
     def _handle(self, message: list) -> bool:
         sample = protocol.decode_voltage_update(message)
         if sample is not None:
+            if not self._logged_fields:
+                # Log the payload's key names once per connection: it is how a
+                # new or renamed field (THD, frequency, the app's "hi-fi" value)
+                # is identified from the container log without a capture.
+                self._logged_fields = True
+                _LOGGER.info("Stream %s payload fields: %s",
+                             self.station_id, ", ".join(sample.fields))
             self._on_sample(self.station_id, sample)
             return True
         if protocol.completion_message(message):
