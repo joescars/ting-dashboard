@@ -1,0 +1,24 @@
+services:
+  ting:
+    build: .
+    image: ting-dashboard:latest
+    container_name: ting-dashboard
+    restart: unless-stopped
+    user: "${TING_UID:-1000}:${TING_GID:-1000}"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      TING_DATA_DIR: /data
+      PORT: "8097"
+    ports:
+      - "${TING_PORT:-8097}:8097"
+    volumes:
+      - ./data:/data
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
