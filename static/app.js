@@ -500,6 +500,8 @@
       x0: h.since, x1: Date.now() / 1000,
       line: pts.map((p) => [p.t + h.step / 2, p.avg]),
       band: pts.map((p) => [p.t + h.step / 2, p.lo, p.hi]),
+      peak: pts.map((p) => [p.t + h.step / 2, p.peak]).filter(([, v]) => v != null),
+      peakDash: [5, 3],
       gapAfter: h.step * 3,
       tick: (t, step) => {
         const d = new Date(t * 1000);

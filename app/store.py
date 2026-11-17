@@ -19,6 +19,8 @@ CREATE TABLE IF NOT EXISTS voltage (
     v_max REAL NOT NULL,
     hi_max REAL NOT NULL,
     lo_min REAL NOT NULL,
+    peak_avg REAL NOT NULL DEFAULT 0,
+    peak_max REAL NOT NULL DEFAULT 0,
     PRIMARY KEY (station, ts)
 ) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS status_log (
@@ -39,20 +41,23 @@ MAX_POINTS = 720
 
 
 class Bucket:
-    __slots__ = ("ts", "n", "total", "vmin", "vmax", "hi", "lo")
+    __slots__ = ("ts", "n", "total", "vmin", "vmax", "hi", "lo", "peak_total", "peak_max")
 
     def __init__(self, ts: int) -> None:
         self.ts, self.n, self.total = ts, 0, 0.0
         self.vmin = self.lo = float("inf")
         self.vmax = self.hi = float("-inf")
+        self.peak_total = self.peak_max = 0.0
 
-    def add(self, v: float, hi: float, lo: float) -> None:
+    def add(self, v: float, hi: float, lo: float, peak: float) -> None:
         self.n += 1
         self.total += v
         self.vmin = min(self.vmin, v)
         self.vmax = max(self.vmax, v)
         self.hi = max(self.hi, hi)
         self.lo = min(self.lo, lo)
+        self.peak_total += peak
+        self.peak_max = max(self.peak_max, peak)
 
 
 class Store:
@@ -64,13 +69,20 @@ class Store:
         self._db.execute("PRAGMA journal_mode=WAL")
         self._db.execute("PRAGMA synchronous=NORMAL")
         self._db.executescript(SCHEMA)
+        # Older databases predate the hi-fi history columns.
+        columns = {row[1] for row in self._db.execute("PRAGMA table_info(voltage)")}
+        for name in ("peak_avg", "peak_max"):
+            if name not in columns:
+                self._db.execute(f"ALTER TABLE voltage ADD COLUMN {name} REAL NOT NULL DEFAULT 0")
         self._lock = threading.Lock()
         self.bucket_seconds = bucket_seconds
         self._open: dict[str, Bucket] = {}
         self._last_status: dict[str, str] = {}
 
     # --- voltage -----------------------------------------------------
-    def add_sample(self, station: str, ts: float, v: float, hi: float, lo: float) -> None:
+    def add_sample(
+        self, station: str, ts: float, v: float, hi: float, lo: float, peak: float = 0.0
+    ) -> None:
         start = int(ts) - int(ts) % self.bucket_seconds
         bucket = self._open.get(station)
         if bucket is not None and bucket.ts != start:
@@ -78,15 +90,16 @@ class Store:
             bucket = None
         if bucket is None:
             bucket = self._open[station] = Bucket(start)
-        bucket.add(v, hi, lo)
+        bucket.add(v, hi, lo, peak)
 
     def _flush(self, station: str, b: Bucket) -> None:
         if not b.n:
             return
         with self._lock:
             self._db.execute(
-                "INSERT OR REPLACE INTO voltage VALUES (?,?,?,?,?,?,?,?)",
-                (station, b.ts, b.n, b.total / b.n, b.vmin, b.vmax, b.hi, b.lo),
+                "INSERT OR REPLACE INTO voltage VALUES (?,?,?,?,?,?,?,?,?,?)",
+                (station, b.ts, b.n, b.total / b.n, b.vmin, b.vmax, b.hi, b.lo,
+                 b.peak_total / b.n, b.peak_max),
             )
 
     def flush_all(self) -> None:
@@ -105,7 +118,8 @@ class Store:
                 """
                 SELECT (ts / ?) * ? AS t,
                        SUM(v_avg * n) / SUM(n), MIN(v_min), MAX(v_max),
-                       MAX(hi_max), MIN(lo_min), SUM(n)
+                       MAX(hi_max), MIN(lo_min), SUM(peak_avg * n) / SUM(n),
+                       MAX(peak_max), SUM(n)
                 FROM voltage WHERE station = ? AND ts >= ?
                 GROUP BY t ORDER BY t
                 """,
@@ -121,7 +135,8 @@ class Store:
             "since": since,
             "points": [
                 {"t": r[0], "avg": round(r[1], 2), "min": round(r[2], 2),
-                 "max": round(r[3], 2), "hi": round(r[4], 2), "lo": round(r[5], 2)}
+                 "max": round(r[3], 2), "hi": round(r[4], 2), "lo": round(r[5], 2),
+                 "peak": round(r[6], 2), "peak_hi": round(r[7], 2)}
                 for r in rows
             ],
             "stats": None if not stats or stats[5] is None else {

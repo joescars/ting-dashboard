@@ -98,6 +98,11 @@
     <article class="card" aria-labelledby="hist-title">
       <div class="card-head wrap">
         <h2 id="hist-title">History</h2>
+        <div class="legend small">
+          <span><i class="swatch line"></i>Voltage</span>
+          <span><i class="swatch band"></i>High/low</span>
+          <span><i class="swatch peak"></i>Hi-Fi (peaks)</span>
+        </div>
         <div class="segmented" role="radiogroup" aria-label="History range" id="range-seg">
           <button type="button" role="radio" data-range="1h">1h</button>
           <button type="button" role="radio" data-range="6h">6h</button>
@@ -107,7 +112,7 @@
         </div>
       </div>
       <div class="stats" id="hist-stats"></div>
-      <div class="chart-wrap tall"><canvas id="hist-chart" aria-label="Voltage history chart" role="img"></canvas>
+      <div class="chart-wrap tall"><canvas id="hist-chart" aria-label="Voltage and hi-fi peak history chart" role="img"></canvas>
         <div class="empty" id="hist-empty" hidden>No history recorded for this range yet. Data is saved while the dashboard is running.</div>
       </div>
     </article>
