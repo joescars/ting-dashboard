@@ -4,6 +4,13 @@ All notable changes to this project. It follows
 [Semantic Versioning](https://semver.org/): breaking configuration or storage
 changes bump the major version.
 
+## [1.0.1] — 2026-11-17
+
+### Added
+
+- Live chart line for the Hi-Fi peak count, with a dedicated right-hand
+  count scale alongside voltage.
+
 ## [1.0.0] — 2026-11-17
 
 First public release.
