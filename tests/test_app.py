@@ -268,3 +268,42 @@ async def test_http_demo(aiohttp_client, tmp_path, monkeypatch):
             got += await resp.content.readany()
     assert got.startswith(b"event: state")
     resp.close()
+
+
+# ------------------------------------------------------------------ live chart lines
+async def test_live_chart_plots_hifi_alongside_voltage(aiohttp_client, tmp_path, monkeypatch):
+    """The live chart draws the peak ("hi-fi") count over the voltage line.
+
+    No backend change is needed: ``AveragePeaksMax`` already rides along on
+    every sample as ``p.m.AveragePeaksMax``. This guards the client contract
+    — a second line, its own scale, and a legend entry naming it — and that
+    the sample payload keeps carrying the field the line reads.
+    """
+    from app import const, main
+
+    monkeypatch.setattr(const, "DATA_DIR", str(tmp_path))
+    cl = await aiohttp_client(main.make_app(demo=True))
+    state = None
+    for _ in range(50):
+        state = await (await cl.get("/api/state")).json()
+        if state["latest"]:
+            break
+        await asyncio.sleep(0.1)
+    assert state and state["latest"], "demo mode never produced a sample"
+    serial = state["devices"][0]["serial"]
+
+    # The field the second line reads must reach the browser on live samples.
+    recent = await (await cl.get(f"/api/recent?station={serial}")).json()
+    assert recent, "expected recent samples"
+    assert "AveragePeaksMax" in recent[-1]["m"]
+
+    js = (await (await cl.get("/static/app.js")).text())
+    # a high/low band is drawn for voltage but must NOT be drawn for peaks
+    assert "band:" in js, "voltage band wiring is missing"
+    assert "peak:" in js, "the hi-fi line is not wired into the live chart"
+    assert "drawChart(" in js
+    # the series must read Ting's peak-count measurement, matched case-insensitively
+    assert "averagepeaksmax" in js, "the hi-fi series does not read the peak measurement"
+
+    html = (await (await cl.get("/")).text())
+    assert "Hi-Fi" in html, "the live chart legend does not name the hi-fi line"

@@ -303,6 +303,19 @@
     renderConn();
   }, 1000);
 
+  // The peak ("hi-fi") series reads Ting's peak-count measurement. Accept any
+  // of the names it has appeared under so a rename upstream degrades to a
+  // missing line rather than a broken chart.
+  const PEAK_KEYS = ["averagepeaksmax", "peaks"];
+  const peakOf = (p) => {
+    const m = p?.m;
+    if (!m) return null;
+    for (const [k, v] of Object.entries(m)) {
+      if (PEAK_KEYS.includes(k.toLowerCase()) && typeof v === "number" && Number.isFinite(v)) return v;
+    }
+    return null;
+  };
+
   function requestDraw() {
     if (st.drawQueued) return;
     st.drawQueued = true;
@@ -313,6 +326,8 @@
         x0: end - LIVE_WINDOW, x1: end,
         line: st.recent.map((p) => [p.t, p.v]),
         band: st.recent.map((p) => [p.t, p.lo, p.hi]),
+        peak: st.recent.map((p) => [p.t, peakOf(p)]).filter(([, v]) => v != null),
+        peakDash: [5, 3],
         gapAfter: 5,
         tick: (t, step) => new Date(t * 1000).toLocaleTimeString([], step < 60
           ? { hour: "numeric", minute: "2-digit", second: "2-digit" } : { hour: "numeric", minute: "2-digit" }),
@@ -334,7 +349,8 @@
     c.clearRect(0, 0, W, H);
     const font = getComputedStyle(document.body).fontFamily;
     c.font = `12px ${font}`;
-    const pad = { l: 44, r: 8, t: 8, b: 24 };
+    // A right-hand axis is only reserved when a second (peak) series is drawn.
+    const pad = { l: 44, r: o.peak ? 40 : 8, t: 8, b: 24 };
     const pw = W - pad.l - pad.r, ph = H - pad.t - pad.b;
 
     let lo = Infinity, hi = -Infinity;
@@ -345,8 +361,19 @@
     const mid = (hi + lo) / 2;
     lo = Math.floor(mid - span * 0.65); hi = Math.ceil(mid + span * 0.65);
 
+    // The peak series shares the x axis but gets its own y scale: peak counts
+    // are small integers (0-5) and voltage is ~120 V, so one shared axis would
+    // flatten the peaks onto the floor. Always anchored at 0 so bar height is
+    // proportional and an occasional spike cannot rescale the whole line.
+    const peaks = o.peak || [];
+    let pLo = 0, pHi = 0;
+    for (const [, v] of peaks) { if (v > pHi) pHi = v; }
+    const pStep = niceStep(Math.max(pHi, 1) / 2);
+    pHi = Math.ceil(Math.max(pHi, 1) / pStep) * pStep;
+
     const X = (t) => pad.l + ((t - o.x0) / (o.x1 - o.x0)) * pw;
     const Y = (v) => pad.t + (1 - (v - lo) / (hi - lo)) * ph;
+    const PY = (v) => pad.t + (1 - (v - pLo) / (pHi - pLo)) * ph;
 
     // shade outside the ANSI range A band (only visible when voltage strays)
     c.fillStyle = cssVar("--chart-out");
@@ -364,6 +391,18 @@
       const y = Math.round(Y(v)) + 0.5;
       c.beginPath(); c.moveTo(pad.l, y); c.lineTo(W - pad.r, y); c.stroke();
       c.fillText(`${+v.toFixed(1)}`, pad.l - 8, y);
+    }
+    // right-hand scale for the peak series, labelled so the two lines are not
+    // mistaken for the same units
+    if (o.peak) {
+      const labelFill = c.fillStyle;
+      c.fillStyle = cssVar("--chart-peak");
+      c.textAlign = "left";
+      for (let v = pLo; v <= pHi; v += pStep) {
+        c.fillText(`${+v.toFixed(0)}`, W - pad.r + 8, Math.round(PY(v)) + 0.5);
+      }
+      c.fillStyle = labelFill;
+      c.textAlign = "right";
     }
     // x labels on aligned, human-friendly intervals
     c.textAlign = "center"; c.textBaseline = "top";
@@ -405,6 +444,19 @@
       seg.forEach(([t, v], i) => (i ? c.lineTo(X(t), Y(v)) : c.moveTo(X(t), Y(v))));
       if (seg.length === 1) c.arc(X(seg[0][0]), Y(seg[0][1]), 1.5, 0, Math.PI * 2);
       c.stroke();
+    }
+    // peak ("hi-fi") series, drawn over the voltage line on its own scale
+    if (o.peak) {
+      c.strokeStyle = cssVar("--chart-peak");
+      c.lineWidth = 1.5;
+      c.setLineDash(o.peakDash || []);
+      for (const seg of segments(o.peak)) {
+        c.beginPath();
+        seg.forEach(([t, v], i) => (i ? c.lineTo(X(t), PY(v)) : c.moveTo(X(t), PY(v))));
+        if (seg.length === 1) c.arc(X(seg[0][0]), PY(seg[0][1]), 1.5, 0, Math.PI * 2);
+        c.stroke();
+      }
+      c.setLineDash([]);
     }
     c.restore();
   }

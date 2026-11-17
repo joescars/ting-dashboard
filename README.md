@@ -14,7 +14,8 @@ that needs no internet access to render.
 ## What you get
 
 - **Live voltage**, ~4 samples/second streamed over SSE, with a high/low
-  envelope, sample rate, and ANSI C84.1 range-A markers
+  envelope, sample rate, and ANSI C84.1 range-A markers, plus a second
+  ("Hi-Fi (peaks)") line for the peak count on its own scale
 - **Signal strip** — every other measurement the voltage frame carries, shown
   beside the reading: THD, line frequency, and the peak ("hi-fi") count. Fields
   are passed through from the payload, so a new one appears without a code
