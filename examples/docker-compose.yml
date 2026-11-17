@@ -1,0 +1,63 @@
+# Example stack for the prebuilt image.
+#
+#   mkdir -p ~/ting && cd ~/ting
+#   cp examples/docker-compose.yml docker-compose.yml     # from a clone of the repo
+#   cp .env.example .env && $EDITOR .env                  # set DASHBOARD_PASSWORD
+#   sudo mkdir -p data && sudo chown "$(id -u):$(id -g)" data
+#   docker compose up -d
+#
+# Compose reads the `.env` sitting next to this file, so the ${VARS} below are
+# filled from it. Every value has a sane default — the only one you should set
+# is DASHBOARD_PASSWORD, otherwise anyone who can reach the port can read your
+# electrical data.
+services:
+  ting:
+    image: ghcr.io/joescars/ting-dashboard:1.0.0
+    container_name: ting-dashboard
+    restart: unless-stopped
+
+    # Run as the user that owns ./data (see README). On a NAS, look up the
+    # right ids with `id <username>` and set TING_UID/TING_GID in .env.
+    user: "${TING_UID:-1000}:${TING_GID:-1000}"
+
+    environment:
+      TING_DATA_DIR: /data
+      PORT: "8097"
+      DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD:-}
+      # Optional: link the Ting account from .env instead of the /setup page.
+      TING_EMAIL: ${TING_EMAIL:-}
+      TING_PASSWORD: ${TING_PASSWORD:-}
+      SETUP_TOKEN: ${SETUP_TOKEN:-}
+      TING_POLL_INTERVAL: ${TING_POLL_INTERVAL:-60}
+      TING_NOTIFICATION_INTERVAL: ${TING_NOTIFICATION_INTERVAL:-300}
+      TING_BUCKET_SECONDS: ${TING_BUCKET_SECONDS:-5}
+      TING_RETENTION_DAYS: ${TING_RETENTION_DAYS:-90}
+      TING_DEMO: ${TING_DEMO:-0}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+
+    ports:
+      - "${TING_PORT:-8097}:8097"
+
+    volumes:
+      - ./data:/data
+
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8097/healthz', timeout=4)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
