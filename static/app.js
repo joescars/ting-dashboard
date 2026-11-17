@@ -17,14 +17,19 @@
   // ---------------------------------------------------------------- theme
   const THEMES = ["auto", "light", "dark"];
   const THEME_ICONS = {
-    auto: "M12 3a9 9 0 1 0 0 18V3z",
-    light: "M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10zM11 1h2v3h-2zm0 19h2v3h-2zM3.5 4.9l1.4-1.4 2.1 2.1-1.4 1.4zm13.1 13.1 1.4-1.4 2.1 2.1-1.4 1.4zM1 11h3v2H1zm19 0h3v2h-3zM3.5 19.1l2.1-2.1 1.4 1.4-2.1 2.1zM16.6 6l2.1-2.1 1.4 1.4L18 7.4z",
-    dark: "M12.3 2a10 10 0 1 0 9.7 12.4A8 8 0 0 1 12.3 2z",
+    auto: ["M12 21a9 9 0 1 1 0-18 9 9 0 0 1 0 18zm0-2a7 7 0 1 0 0-14 7 7 0 0 0 0 14z", "M12 5a7 7 0 0 1 0 14z"],
+    light: ["M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10zM11 1h2v3h-2zm0 19h2v3h-2zM3.5 4.9l1.4-1.4 2.1 2.1-1.4 1.4zm13.1 13.1 1.4-1.4 2.1 2.1-1.4 1.4zM1 11h3v2H1zm19 0h3v2h-3zM3.5 19.1l2.1-2.1 1.4 1.4-2.1 2.1zM16.6 6l2.1-2.1 1.4 1.4L18 7.4z"],
+    dark: ["M12.3 2a10 10 0 1 0 9.7 12.4A8 8 0 0 1 12.3 2z"],
   };
   function applyTheme(t) {
     if (t === "auto") delete document.documentElement.dataset.theme;
     else document.documentElement.dataset.theme = t;
-    $("theme-icon").setAttribute("d", THEME_ICONS[t]);
+    const g = $("theme-icon");
+    g.replaceChildren(...THEME_ICONS[t].map((d) => {
+      const p = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      p.setAttribute("d", d);
+      return p;
+    }));
     $("theme-btn").setAttribute("aria-label", `Theme: ${t}`);
     $("theme-btn").title = `Theme: ${t}`;
     requestDraw();

@@ -247,8 +247,22 @@ async def api_history(request: web.Request) -> web.Response:
 
 
 async def api_recent(request: web.Request) -> web.Response:
+    """Last 5 minutes. Falls back to stored buckets so a freshly opened page
+    draws the whole window immediately instead of filling in from the right."""
+    hub: Hub = request.app["hub"]
     station = _station(request)
-    return web.json_response(list(request.app["hub"].recent.get(station, [])))
+    points = list(hub.recent.get(station, []))
+    if len(points) < 30:
+        hist = await asyncio.to_thread(request.app["store"].history, station, RECENT_SECONDS)
+        seeded = [
+            {"st": station, "t": p["t"] + hist["step"], "v": p["avg"], "hi": p["hi"], "lo": p["lo"]}
+            for p in hist["points"]
+        ]
+        if len(seeded) > len(points):
+            last = seeded[-1]["t"]
+            seeded += [p for p in points if p["t"] > last]
+            points = seeded
+    return web.json_response(points)
 
 
 async def api_events(request: web.Request) -> web.Response:

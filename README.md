@@ -3,6 +3,8 @@
 Self-hosted web dashboard for a Whisker Labs **Ting** electrical fire sensor, replacing the
 iOS app with something you can open on any screen in the house.
 
+![Dashboard preview](docs/preview.png)
+
 - **Live line voltage** chart (~4 samples/s) over a server-sent-events stream
 - **Hazard status** tiles: fire alert, electrical + utility fire hazard, power quality,
   frozen-pipe risk, learning mode
